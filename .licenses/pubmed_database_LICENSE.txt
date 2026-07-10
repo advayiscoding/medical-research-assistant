@@ -1,0 +1,18 @@
+PubMed / NCBI E-utilities — Usage Notice
+Recorded: 2026-07-10T00:00:00Z (by MedResearch AI build)
+
+This project retrieves data from the NCBI PubMed / E-utilities APIs.
+
+You are responsible for reviewing and complying with:
+  - PubMed disclaimer:        https://pubmed.ncbi.nlm.nih.gov/disclaimer/
+  - NCBI website policies:    https://www.ncbi.nlm.nih.gov/home/about/policies/
+  - E-utilities usage terms:  https://www.ncbi.nlm.nih.gov/books/NBK25497/
+
+Key obligations reflected in this codebase:
+  - Rate limiting: max 3 requests/second without an API key, 10/second with one.
+    Enforced in backend/app/services/pubmed.py.
+  - Identification: an email (PUBMED_EMAIL) and optional API key (PUBMED_API_KEY)
+    are sent with each request per NCBI etiquette.
+  - Per-paper licensing: PubMed metadata/abstracts and PMC full text carry their
+    OWN licenses. Always check the license of each retrieved paper before reuse
+    or redistribution. Many PMC articles are NOT in the open-access subset.
