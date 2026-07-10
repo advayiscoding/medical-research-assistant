@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
 from app.db.session import get_db
+from app.services.llm import ClaudeClient, get_claude_client
 from app.services.pubmed import PubMedClient
 from app.services.vector_store import VectorStore
 from app.services.vector_store_provider import get_vector_store
@@ -35,8 +36,15 @@ def get_store() -> VectorStore:
     return get_vector_store()
 
 
+def get_llm(
+    settings: Annotated[Settings, Depends(get_app_settings)],
+) -> ClaudeClient:
+    return get_claude_client(settings)
+
+
 # Short aliases for readable route signatures.
 SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 DbDep = Annotated[AsyncSession, Depends(get_db)]
 PubMedDep = Annotated[PubMedClient, Depends(get_pubmed_client)]
 VectorStoreDep = Annotated[VectorStore, Depends(get_store)]
+LLMDep = Annotated[ClaudeClient, Depends(get_llm)]
