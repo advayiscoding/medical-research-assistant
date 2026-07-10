@@ -13,8 +13,9 @@ import logging
 
 from fastapi import APIRouter
 
-from app.api.deps import DbDep, PubMedDep
+from app.api.deps import DbDep, PubMedDep, VectorStoreDep
 from app.schemas.paper import PaperRead, SearchRequest, SearchResponse
+from app.services.ingestion import ingest_paper
 from app.services.papers import upsert_papers
 
 logger = logging.getLogger(__name__)
@@ -26,9 +27,17 @@ async def search_papers(
     payload: SearchRequest,
     pubmed: PubMedDep,
     db: DbDep,
+    store: VectorStoreDep,
 ) -> SearchResponse:
     papers = await pubmed.search_and_fetch(payload.query, payload.max_results)
     persisted = await upsert_papers(db, papers)
+
+    # Ingest each paper so it is immediately semantically searchable. This is
+    # idempotent (see ingestion.py), so re-searching a known topic re-indexes
+    # nothing. For a portfolio-scale corpus doing this inline is fine; at larger
+    # scale this would move to a background task/queue so search stays snappy.
+    for paper in persisted:
+        await ingest_paper(db, paper, store)
     await db.commit()
 
     return SearchResponse(
