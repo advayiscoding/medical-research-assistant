@@ -1,12 +1,15 @@
-# Development infrastructure. Application services (backend, frontend,
-# chromadb) are added in the Dockerization phase; postgres comes first because
-# every phase after the database layer needs it.
+# Full stack: postgres + chromadb + backend + frontend.
+#   docker compose up --build
+# brings the whole app online at http://localhost:3000 with one command.
+#
+# Startup ordering uses healthchecks (not just depends_on) so the backend only
+# starts once Postgres and ChromaDB are actually accepting connections.
 services:
   postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: medresearch
-      POSTGRES_PASSWORD: medresearch # local dev only — prod uses managed DB + Key Vault
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-medresearch} # override in prod via .env
       POSTGRES_DB: medresearch
     ports:
       - "5432:5432"
@@ -18,5 +21,60 @@ services:
       timeout: 3s
       retries: 10
 
+  chromadb:
+    image: chromadb/chroma:0.5.20
+    ports:
+      - "8001:8000" # host 8001 -> container 8000 (Chroma's default)
+    volumes:
+      - chromadata:/chroma/chroma
+    healthcheck:
+      # v2 heartbeat endpoint; the image ships without curl, so use Python.
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v2/heartbeat')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-dev}
+      DATABASE_URL: postgresql+asyncpg://medresearch:${POSTGRES_PASSWORD:-medresearch}@postgres:5432/medresearch
+      CHROMA_HOST: chromadb
+      CHROMA_PORT: "8000"
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-do-not-use-in-prod}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-5}
+      PUBMED_EMAIL: ${PUBMED_EMAIL:-}
+      PUBMED_API_KEY: ${PUBMED_API_KEY:-}
+      CORS_ORIGINS: '["http://localhost:3000"]'
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Browser-reachable backend URL (host port), inlined at build time.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api}
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
 volumes:
   pgdata:
+  chromadata:
+  uploads:

@@ -55,6 +55,16 @@ access is behind an interface.
 (source of truth), then Chroma, and storing the Chroma ID on each `paper_chunks`
 row so reconciliation is always possible.
 
+> **Operational note (learned in verification):** ingestion is idempotent by
+> checking Postgres — if a paper already has `paper_chunks` rows, we skip
+> re-embedding. That check *assumes the two stores share a lifecycle*. If you
+> wipe one volume but not the other (e.g. a fresh ChromaDB against a Postgres
+> volume left over from an earlier run), Postgres says "already ingested" and
+> Chroma stays empty — searches then return nothing. Treat the `pgdata` and
+> `chromadata` volumes as a unit: reset them together (`docker compose down -v`).
+> A production hardening would be a `reconcile` job that re-embeds any
+> `paper_chunks` row whose `chroma_id` is missing from the vector store.
+
 ---
 
 ## 2. Repository Layout (monorepo)
