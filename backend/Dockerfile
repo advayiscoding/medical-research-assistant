@@ -34,14 +34,17 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     HF_HOME=/home/appuser/.cache/huggingface
 
-COPY --chown=appuser:appuser . .
-
 USER appuser
 
-# Bake the default embedding model into the image (skipped automatically if a
-# different model is configured at runtime — that one downloads on first use).
+# Bake the default embedding model into the image BEFORE copying app code, so
+# this layer depends only on the venv — editing application code no longer
+# re-downloads the 90 MB model on every rebuild. (Skipped at runtime if a
+# different model is configured; that one downloads on first use.)
 RUN python -c "from sentence_transformers import SentenceTransformer; \
     SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
+
+# App code last: the layer that changes most often invalidates the least.
+COPY --chown=appuser:appuser . .
 
 EXPOSE 8000
 

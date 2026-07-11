@@ -16,7 +16,7 @@ from reportlab.pdfgen import canvas
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.api.deps import get_llm, get_store
+from app.api.deps import get_llm, get_pubmed_client, get_store
 from app.core.config import Settings, get_settings
 from app.main import create_app
 from app.models import User
@@ -29,6 +29,14 @@ class FakeLLM:
 
     async def complete(self, system: str, user: str, *, max_tokens: int = 2048) -> str:
         return "Metformin lowers blood glucose by reducing hepatic gluconeogenesis [1]."
+
+
+class FakePubMed:
+    """No-op PubMed: the chat auto-search top-up finds nothing, so tests stay
+    offline and deterministic. Tests that want a corpus ingest one directly."""
+
+    async def search_and_fetch(self, query: str, max_results: int = 10):
+        return []
 
 
 @pytest.fixture(autouse=True)
@@ -51,6 +59,7 @@ def client(tmp_path, emails):
     app = create_app(Settings(environment="test"))
     app.dependency_overrides[get_llm] = lambda: FakeLLM()
     app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_pubmed_client] = lambda: FakePubMed()
     yield TestClient(app)
     app.dependency_overrides.clear()
 
@@ -130,9 +139,43 @@ def test_sessions_are_isolated_per_user(client: TestClient, emails) -> None:
 def test_ask_without_evidence_reports_insufficient(client: TestClient, emails) -> None:
     h = _auth(client, emails[0])
     sid = client.post("/api/chat/sessions", headers=h).json()["id"]
-    # No documents ingested for this user's query topic -> retrieval floor trips.
+    # No documents ingested + FakePubMed returns nothing -> retrieval floor trips.
     ask = client.post(f"/api/chat/sessions/{sid}/messages", headers=h,
                       json={"question": "What is the airspeed velocity of an unladen swallow?"})
     assert ask.status_code == 200
     assert ask.json()["insufficient_evidence"] is True
     assert ask.json()["assistant_message"]["citations"] == []
+
+
+def test_chat_auto_fetches_papers_when_corpus_thin(tmp_path, emails) -> None:
+    """When the local corpus doesn't cover the question, chat pulls papers from
+    PubMed first, so the user gets a grounded answer without searching manually."""
+    from app.schemas.paper import PubMedPaper
+
+    class FetchingPubMed:
+        async def search_and_fetch(self, query: str, max_results: int = 10):
+            return [PubMedPaper(pmid=f"D{uuid.uuid4().int % 10_000_000}",
+                                title="Metformin in type 2 diabetes",
+                                authors=["Doe A"], journal="Diabetes Care",
+                                abstract="Metformin lowers blood glucose by reducing "
+                                         "hepatic gluconeogenesis and is first-line therapy.")]
+
+    store = VectorStore(Settings(environment="test", chroma_persist_dir=str(tmp_path / "c2")))
+    app = create_app(Settings(environment="test"))
+    app.dependency_overrides[get_llm] = lambda: FakeLLM()
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_pubmed_client] = lambda: FetchingPubMed()
+    c = TestClient(app)
+
+    h = _auth(c, emails[0])
+    sid = c.post("/api/chat/sessions", headers=h).json()["id"]
+    ask = c.post(f"/api/chat/sessions/{sid}/messages", headers=h,
+                 json={"question": "first-line treatment for type 2 diabetes"})
+    app.dependency_overrides.clear()
+
+    assert ask.status_code == 200
+    body = ask.json()
+    # Auto-fetched paper was ingested and grounded the answer.
+    assert body["insufficient_evidence"] is False
+    assert len(body["assistant_message"]["citations"]) == 1
+    assert body["assistant_message"]["citations"][0]["chunk"]["pmid"].startswith("D")

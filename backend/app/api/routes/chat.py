@@ -9,7 +9,7 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.api.deps import CurrentUserDep, DbDep, LLMDep, VectorStoreDep
+from app.api.deps import CurrentUserDep, DbDep, LLMDep, PubMedDep, VectorStoreDep
 from app.models import ChatMessage, Paper, PaperChunk
 from app.schemas.chat import (
     MessageRead,
@@ -64,10 +64,12 @@ async def post_message(
     db: DbDep,
     store: VectorStoreDep,
     llm: LLMDep,
+    pubmed: PubMedDep,
 ) -> PostMessageResponse:
     try:
         user_msg, assistant_msg, insufficient = await chat_service.post_message(
-            db, user, session_id, payload.question, store, llm, top_k=payload.top_k
+            db, user, session_id, payload.question, store, llm,
+            top_k=payload.top_k, pubmed=pubmed,
         )
     except SessionNotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found") from exc

@@ -5,10 +5,32 @@
 // citations in the answer text) and shows PMID/journal/year + the exact chunk
 // that supported the claim, with a link out to PubMed.
 
-import { ExternalLink, FileText, BookOpen } from "lucide-react";
+import { ExternalLink, FileText, BookOpen, SearchX } from "lucide-react";
 import type { Citation } from "@/lib/types";
 
-export function CitationsPanel({ citations }: { citations: Citation[] }) {
+export function CitationsPanel({
+  citations,
+  insufficient = false,
+}: {
+  citations: Citation[];
+  insufficient?: boolean;
+}) {
+  // Refusal: no source list, because the retrieved chunks did not actually
+  // support an answer. Showing them here would imply otherwise.
+  if (insufficient) {
+    return (
+      <div className="p-6 text-sm text-[var(--color-muted-foreground)]">
+        <SearchX size={20} className="mb-2 opacity-70" aria-hidden />
+        <p className="font-medium text-[var(--color-foreground)]">No supporting evidence</p>
+        <p className="mt-1">
+          The indexed literature doesn&rsquo;t cover this question. Try the{" "}
+          <span className="font-medium">Search</span> page to add relevant papers,
+          then ask again.
+        </p>
+      </div>
+    );
+  }
+
   if (citations.length === 0) {
     return (
       <div className="p-6 text-sm text-[var(--color-muted-foreground)]">

@@ -45,8 +45,14 @@ export function ChatView({
   const threadRef = useRef<HTMLDivElement>(null);
 
   // Citations shown = those of the latest assistant message.
-  const latestCitations: Citation[] =
-    [...messages].reverse().find((m) => m.role === "assistant")?.citations ?? [];
+  const latestAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+  const latestCitations: Citation[] = latestAssistant?.citations ?? [];
+  // A refusal answer carries our fixed "not enough evidence" phrase; in that
+  // case any cited chunks are off-topic, so we suppress them and say so instead
+  // of presenting irrelevant papers as if they backed an answer.
+  const latestInsufficient =
+    !!latestAssistant &&
+    latestAssistant.content.includes("do not contain enough evidence");
 
   useEffect(() => {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" });
@@ -164,7 +170,10 @@ export function ChatView({
 
       {/* Citations panel */}
       <aside className="scrollbar-thin w-80 shrink-0 overflow-y-auto border-l border-[var(--color-border)] bg-[var(--color-surface-muted)]">
-        <CitationsPanel citations={latestCitations} />
+        <CitationsPanel
+          citations={latestInsufficient ? [] : latestCitations}
+          insufficient={latestInsufficient}
+        />
       </aside>
     </div>
   );
