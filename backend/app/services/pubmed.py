@@ -22,6 +22,7 @@ Design decisions
 
 import asyncio
 import logging
+import re
 import time
 from datetime import date
 from xml.etree import ElementTree as ET
@@ -35,10 +36,36 @@ logger = logging.getLogger(__name__)
 
 EUTILS_BASE = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
+# Filler and question words that make PubMed (which ANDs every term literally)
+# return nothing for natural-language queries like "latest cures for X". We
+# strip ONLY non-clinical filler — words like "treatment", "therapy", "risk",
+# "diagnosis" are kept because they are legitimate, high-signal PubMed terms.
+_QUERY_STOPWORDS = frozenset({
+    "a", "an", "the", "of", "for", "in", "on", "to", "and", "or", "with", "about",
+    "what", "whats", "which", "who", "how", "is", "are", "do", "does", "can", "could",
+    "i", "my", "me", "we", "you", "there", "any",
+    "latest", "recent", "recently", "newest", "new", "current", "currently", "modern",
+    "best", "most", "effective", "good", "better", "promising", "emerging",
+    "cure", "cures", "cured",  # medical literature indexes "therapy"/"treatment", not "cure"
+})
+
 _MONTHS = {
     "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
     "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
 }
+
+
+def relax_query(query: str) -> str:
+    """Strip filler/question words from a natural-language query, leaving the
+    clinical keywords PubMed actually matches on. Pure function — no network —
+    so it is cheap to unit-test. Returns "" if nothing survives (all stopwords),
+    in which case the caller keeps the original query rather than searching for
+    nothing."""
+    kept = [
+        w for w in re.findall(r"[A-Za-z0-9'-]+", query)
+        if w.lower() not in _QUERY_STOPWORDS
+    ]
+    return " ".join(kept)
 
 
 class _RateLimiter:
@@ -119,8 +146,21 @@ class PubMedClient:
         return self._parse_articles(resp.text)
 
     async def search_and_fetch(self, query: str, max_results: int = 10) -> list[PubMedPaper]:
-        """Convenience: the esearch -> efetch chain the app almost always wants."""
+        """Convenience: the esearch -> efetch chain the app almost always wants.
+
+        If the raw query finds nothing, retry once with filler words removed.
+        PubMed matches literally and ANDs every term, so a natural-language
+        question ("latest cures for schizophrenia") often yields zero hits while
+        its keyword core ("schizophrenia") returns plenty. The fallback makes the
+        product forgiving of how real users phrase things, without silently
+        broadening a query that already worked.
+        """
         pmids = await self.esearch(query, max_results)
+        if not pmids:
+            relaxed = relax_query(query)
+            if relaxed and relaxed.lower() != query.lower():
+                logger.info("no hits for %r; retrying relaxed query %r", query, relaxed)
+                pmids = await self.esearch(relaxed, max_results)
         return await self.efetch(pmids)
 
     # --- XML parsing -----------------------------------------------------
