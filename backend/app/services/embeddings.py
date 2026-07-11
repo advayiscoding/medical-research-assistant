@@ -43,10 +43,9 @@ _model_lock = threading.Lock()
 
 def _dim(model: SentenceTransformer) -> int:
     # sentence-transformers renamed this method; support both across versions.
-    getter = getattr(model, "get_embedding_dimension", None) or getattr(
-        model, "get_sentence_embedding_dimension"
-    )
-    return int(getter())
+    if hasattr(model, "get_embedding_dimension"):
+        return int(model.get_embedding_dimension())
+    return int(model.get_sentence_embedding_dimension())
 
 
 @lru_cache(maxsize=1)

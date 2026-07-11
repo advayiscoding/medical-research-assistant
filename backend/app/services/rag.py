@@ -33,7 +33,13 @@ async def answer_question(
     store: VectorStore,
     llm: LLMClient,
     top_k: int = 5,
+    history: list[tuple[str, str]] | None = None,
 ) -> AskResponse:
+    # Retrieval uses the raw question. For follow-ups this is a known limitation:
+    # "what about its side effects?" retrieves poorly on its own. The clean fix
+    # is a query-rewrite step (LLM condenses history+question into a standalone
+    # query before retrieval); we pass history to the answer prompt for now and
+    # note the rewrite as the next upgrade.
     chunks = await retrieve(question, store, top_k=top_k)
 
     # Hallucination control #1: the retrieval floor. If nothing relevant was
@@ -48,7 +54,7 @@ async def answer_question(
         )
 
     system = prompts.SYSTEM_PROMPT
-    user = prompts.build_user_message(question, chunks)
+    user = prompts.build_user_message(question, chunks, history=history)
     answer = await llm.complete(system, user)
 
     citations = _resolve_citations(answer, chunks)

@@ -9,7 +9,7 @@ dependencies = [
     "uvicorn[standard]>=0.32",
     "python-multipart>=0.0.18",   # multipart parsing for PDF uploads
     # Config & validation
-    "pydantic>=2.9",
+    "pydantic[email]>=2.9",
     "pydantic-settings>=2.6",
     # Database
     "sqlalchemy[asyncio]>=2.0.36",
@@ -37,6 +37,7 @@ dev = [
     "aiosqlite>=0.20",            # in-memory SQL for unit tests
     "ruff>=0.8",
     "mypy>=1.13",
+    "reportlab>=4.2",             # generate real PDFs in tests
 ]
 
 [build-system]

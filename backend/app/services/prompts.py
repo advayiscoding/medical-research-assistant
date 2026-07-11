@@ -58,11 +58,29 @@ def build_context_block(chunks: list[RetrievedChunk]) -> str:
     return "\n\n".join(parts)
 
 
-def build_user_message(question: str, chunks: list[RetrievedChunk]) -> str:
+def build_history_block(history: list[tuple[str, str]]) -> str:
+    """Render prior turns as compact conversation context so follow-up questions
+    ("what about its side effects?") are interpretable. We cap length upstream;
+    here we just format role-tagged lines."""
+    lines = [f"{'User' if role == 'user' else 'Assistant'}: {content}" for role, content in history]
+    return "\n".join(lines)
+
+
+def build_user_message(
+    question: str,
+    chunks: list[RetrievedChunk],
+    history: list[tuple[str, str]] | None = None,
+) -> str:
     context = build_context_block(chunks)
-    return (
-        f"Sources:\n\n{context}\n\n"
-        f"---\n\n"
-        f"Question: {question}\n\n"
-        f"Answer using only the sources above, citing with [n]."
+    parts = [f"Sources:\n\n{context}\n\n---\n\n"]
+    if history:
+        # History is context for interpreting the question, NOT a source of
+        # facts — the sources above remain the only citable evidence.
+        parts.append(
+            "Conversation so far (for context only — do not cite it):\n"
+            f"{build_history_block(history)}\n\n---\n\n"
+        )
+    parts.append(
+        f"Question: {question}\n\nAnswer using only the sources above, citing with [n]."
     )
+    return "".join(parts)

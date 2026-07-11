@@ -92,11 +92,8 @@ async def _ingest(
 
     vectors = await embeddings.embed_texts(chunks)
 
-    ids: list[str] = []
-    metadatas: list[dict[str, Any]] = []
-    for i, chunk in enumerate(chunks):
-        ids.append(f"{id_prefix}:{i}")
-        metadatas.append({**metadata_base, "chunk_index": i})
+    ids = [f"{id_prefix}:{i}" for i in range(len(chunks))]
+    metadatas = [{**metadata_base, "chunk_index": i} for i in range(len(chunks))]
 
     # Chroma client is synchronous/blocking → keep it off the event loop.
     await asyncio.to_thread(store.add, ids, vectors, chunks, metadatas)
