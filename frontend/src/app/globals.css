@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+/*
+  Design system — from ui-ux-pro-max "Accessible & Ethical" (WCAG-AAA) with a
+  clinical cyan + health-green palette. Semantic tokens (not raw hex in
+  components) so theming is centralized and dark mode is a token swap.
+*/
+:root {
+  --color-primary: #0891b2; /* cyan-600 — clinical, trustworthy */
+  --color-primary-hover: #0e7490; /* cyan-700 */
+  --color-on-primary: #ffffff;
+  --color-accent: #059669; /* emerald-600 — "health" CTA */
+  --color-accent-hover: #047857;
+
+  --color-background: #f8fafc; /* slate-50 — calm app canvas */
+  --color-surface: #ffffff;
+  --color-surface-muted: #f1f5f9; /* slate-100 */
+  --color-foreground: #0f172a; /* slate-900 — 4.5:1+ on surfaces */
+  --color-muted-foreground: #475569; /* slate-600 */
+  --color-border: #e2e8f0; /* slate-200 */
+  --color-ring: #0891b2;
+  --color-destructive: #dc2626;
+  --color-success: #059669;
+
+  --radius: 0.625rem;
+}
+
+@theme inline {
+  --color-background: var(--color-background);
+  --color-surface: var(--color-surface);
+  --color-surface-muted: var(--color-surface-muted);
+  --color-foreground: var(--color-foreground);
+  --color-muted-foreground: var(--color-muted-foreground);
+  --color-primary: var(--color-primary);
+  --color-primary-hover: var(--color-primary-hover);
+  --color-on-primary: var(--color-on-primary);
+  --color-accent: var(--color-accent);
+  --color-accent-hover: var(--color-accent-hover);
+  --color-border: var(--color-border);
+  --color-ring: var(--color-ring);
+  --color-destructive: var(--color-destructive);
+  --color-success: var(--color-success);
+  --font-sans: var(--font-figtree), system-ui, sans-serif;
+  --font-body: var(--font-noto-sans), system-ui, sans-serif;
+  --radius-lg: var(--radius);
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-sans);
+}
+
+/* Visible focus rings for keyboard nav (accessibility rule #1). */
+:focus-visible {
+  outline: 3px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+/* Respect reduced-motion (accessibility). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Thin, unobtrusive scrollbars for the chat/citation panels. */
+.scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--color-border); border-radius: 9999px;
+}

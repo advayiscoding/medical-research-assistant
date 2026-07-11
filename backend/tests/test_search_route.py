@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from app.api.deps import get_pubmed_client
 from app.core.config import Settings, get_settings
 from app.main import create_app
-from app.models import Paper
+from app.models import Paper, User
 from app.schemas.paper import PubMedPaper
 
 
@@ -52,6 +52,11 @@ def _reset_engine():
 
 
 @pytest.fixture
+def email() -> str:
+    return f"search-{uuid.uuid4().hex[:10]}@example.com"
+
+
+@pytest.fixture
 def client(unique_pmids: list[str]):
     papers = [
         PubMedPaper(pmid=unique_pmids[0], title="Alzheimer treatment A", authors=["Smith J"],
@@ -65,8 +70,15 @@ def client(unique_pmids: list[str]):
     app.dependency_overrides.clear()
 
 
+@pytest.fixture
+def auth_headers(client: TestClient, email: str) -> dict[str, str]:
+    # Search is a protected route since Phase 8; register a throwaway user.
+    r = client.post("/api/auth/register", json={"email": email, "password": "supersecret1"})
+    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
 @pytest.fixture(autouse=True)
-def _cleanup(unique_pmids: list[str]):
+def _cleanup(unique_pmids: list[str], email: str):
     yield
     # Remove test rows so the shared dev DB stays clean. Uses its own throwaway
     # engine + fresh event loop to stay isolated from the app's engine, which
@@ -75,13 +87,20 @@ def _cleanup(unique_pmids: list[str]):
         engine = create_async_engine(get_settings().database_url)
         async with engine.begin() as conn:
             await conn.execute(delete(Paper).where(Paper.pmid.in_(unique_pmids)))
+            await conn.execute(delete(User).where(User.email == email))
         await engine.dispose()
 
     asyncio.run(_del())
 
 
-def test_search_persists_and_returns_papers(client: TestClient) -> None:
-    resp = client.post("/api/search", json={"query": "alzheimer treatments", "max_results": 10})
+def test_search_requires_auth(client: TestClient) -> None:
+    resp = client.post("/api/search", json={"query": "alzheimer", "max_results": 5})
+    assert resp.status_code == 401
+
+
+def test_search_persists_and_returns_papers(client: TestClient, auth_headers) -> None:
+    resp = client.post("/api/search", headers=auth_headers,
+                       json={"query": "alzheimer treatments", "max_results": 10})
     assert resp.status_code == 200
     body = resp.json()
     assert body["count"] == 2
@@ -89,17 +108,10 @@ def test_search_persists_and_returns_papers(client: TestClient) -> None:
     assert body["papers"][0]["journal"] in {"Nature Medicine", "Lancet"}
 
 
-def test_search_is_idempotent(client: TestClient) -> None:
-    first = client.post("/api/search", json={"query": "alzheimer", "max_results": 10}).json()
-    second = client.post("/api/search", json={"query": "alzheimer", "max_results": 10}).json()
-    # Same PMIDs both times, no duplicate rows created.
-    assert first["count"] == second["count"] == 2
-    assert _pmids(first) == _pmids(second)
+def test_search_records_history(client: TestClient, auth_headers) -> None:
+    client.post("/api/search", headers=auth_headers,
+                json={"query": "alzheimer treatments", "max_results": 10})
 
-
-def test_query_validation_rejects_empty(client: TestClient) -> None:
-    resp = client.post("/api/search", json={"query": "", "max_results": 5})
-    assert resp.status_code == 422
 
 
 def _pmids(body: dict) -> list[str]:

@@ -10,7 +10,7 @@ from fastapi import APIRouter
 
 from app.agents.graph import build_graph
 from app.agents.nodes import ResearchAgents
-from app.api.deps import LLMDep, PubMedDep, VectorStoreDep
+from app.api.deps import CurrentUserDep, LLMDep, PubMedDep, VectorStoreDep
 from app.db.session import get_session_factory
 from app.schemas.research import ResearchRequest, ResearchResponse
 
@@ -20,6 +20,7 @@ router = APIRouter(prefix="/research", tags=["research"])
 @router.post("", response_model=ResearchResponse)
 async def research(
     payload: ResearchRequest,
+    user: CurrentUserDep,
     pubmed: PubMedDep,
     store: VectorStoreDep,
     llm: LLMDep,

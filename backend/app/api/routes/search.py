@@ -13,7 +13,8 @@ import logging
 
 from fastapi import APIRouter
 
-from app.api.deps import DbDep, PubMedDep, VectorStoreDep
+from app.api.deps import CurrentUserDep, DbDep, PubMedDep, VectorStoreDep
+from app.models import SearchHistory
 from app.schemas.paper import PaperRead, SearchRequest, SearchResponse
 from app.services.ingestion import ingest_paper
 from app.services.papers import upsert_papers
@@ -25,6 +26,7 @@ router = APIRouter(prefix="/search", tags=["search"])
 @router.post("", response_model=SearchResponse)
 async def search_papers(
     payload: SearchRequest,
+    user: CurrentUserDep,
     pubmed: PubMedDep,
     db: DbDep,
     store: VectorStoreDep,
@@ -38,6 +40,8 @@ async def search_papers(
     # scale this would move to a background task/queue so search stays snappy.
     for paper in persisted:
         await ingest_paper(db, paper, store)
+
+    db.add(SearchHistory(user_id=user.id, query=payload.query, result_count=len(persisted)))
     await db.commit()
 
     return SearchResponse(
