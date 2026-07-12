@@ -18,6 +18,8 @@ from app.db.session import get_db
 from app.models import User
 from app.services.llm import ClaudeClient, get_claude_client
 from app.services.pubmed import PubMedClient
+from app.services.sources.base import SourceProvider
+from app.services.sources.registry import build_providers
 from app.services.vector_store import VectorStore
 from app.services.vector_store_provider import get_vector_store
 
@@ -41,6 +43,16 @@ async def get_pubmed_client(
 
 def get_store() -> VectorStore:
     return get_vector_store()
+
+
+async def get_source_providers(
+    settings: Annotated[Settings, Depends(get_app_settings)],
+) -> AsyncIterator[list[SourceProvider]]:
+    """The ten federated scholarly-source providers, wired to shared HTTP/NCBI
+    clients for the duration of the request. Tests override this with a fake
+    provider list, so the route never touches the network."""
+    async with build_providers(settings) as providers:
+        yield providers
 
 
 def get_llm(
@@ -81,3 +93,4 @@ PubMedDep = Annotated[PubMedClient, Depends(get_pubmed_client)]
 VectorStoreDep = Annotated[VectorStore, Depends(get_store)]
 LLMDep = Annotated[ClaudeClient, Depends(get_llm)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+SourceProvidersDep = Annotated[list[SourceProvider], Depends(get_source_providers)]

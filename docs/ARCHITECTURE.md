@@ -1,8 +1,44 @@
 # MedResearch AI — System Architecture
 
 An AI Medical Research Assistant that answers medical research questions from real
-scientific literature (PubMed + user-uploaded PDFs) using Retrieval-Augmented
-Generation, with every claim traceable to a source.
+scientific literature (ten federated scholarly sources + user-uploaded PDFs) using
+Retrieval-Augmented Generation, with every claim traceable to a source.
+
+## Federated source layer (10 APIs)
+
+Search fans out in parallel to ten free scholarly APIs, then deduplicates,
+merges, and ranks the combined results before anything is stored:
+
+```
+query ─┬─► PubMed ──────────┐
+       ├─► PubMed Central    │
+       ├─► OpenAlex          │   asyncio.gather (parallel, per-source timeout,
+       ├─► ClinicalTrials.gov│   failure-isolated: one source down ≠ search down)
+       ├─► Europe PMC        │
+       ├─► Crossref          ├─► DEDUP (canonical key: doi > pmid > src:id > title-hash)
+       ├─► arXiv             │   MERGE (union sources, max citation_count, best abstract)
+       ├─► bioRxiv           │   RANK  (Reciprocal Rank Fusion + citation bonus)
+       ├─► medRxiv           │
+       └─► openFDA ──────────┘─► upsert (Postgres, idempotent by dedup_key)
+                                 └─► ingest → ChromaDB
+```
+
+- **Provider abstraction** (`services/sources/`): each API normalizes to one
+  `SourceRecord` DTO, so dedup/merge/rank are source-agnostic. Adding a source is
+  one new file + one line in the registry.
+- **Dedup by `dedup_key`**, not PMID — most sources have no PMID (a DOI, an arXiv
+  id, an NCT number, an FDA label id). The same paper found by five APIs collapses
+  to one row; `sources` records all five for provenance.
+- **Ranking** fuses each source's relevance order via RRF (tuning-free, standard)
+  plus a log-scaled citation bonus, so highly-cited *and* multiply-agreed papers
+  rise. Citation counts come mainly from OpenAlex / Crossref / Europe PMC.
+- **bioRxiv/medRxiv** have no keyword-search API of their own; they're retrieved
+  through Europe PMC's preprint index (`PUBLISHER:"bioRxiv"`), the standard route.
+- **Provenance to the answer**: chunk metadata carries `source`/`sources`, so
+  every RAG citation names which API(s) it came from — the "cite the source of
+  every document" requirement, enforced end to end.
+- **Failure isolation**: each source runs under a timeout and a catch-all; a 429
+  or schema change drops that one source, never the whole search.
 
 ---
 

@@ -50,10 +50,19 @@ def build_context_block(chunks: list[RetrievedChunk]) -> str:
         provenance = c.title or "Untitled"
         if c.pmid:
             provenance += f" — PMID {c.pmid}"
+        elif c.doi:
+            provenance += f" — DOI {c.doi}"
         if c.journal:
             provenance += f", {c.journal}"
         if c.year:
             provenance += f" ({c.year})"
+        # Name the federated source(s) so provenance is explicit in-context and
+        # the model can attribute evidence to where it came from.
+        src = c.source.upper() if c.source else ""
+        if c.sources and len(c.sources) > 1:
+            src = "+".join(s.upper() for s in c.sources)
+        if src:
+            provenance += f" [source: {src}]"
         parts.append(f"[{i}] {provenance}\n{c.text}")
     return "\n\n".join(parts)
 

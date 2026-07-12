@@ -5,8 +5,9 @@
 // citations in the answer text) and shows PMID/journal/year + the exact chunk
 // that supported the claim, with a link out to PubMed.
 
-import { ExternalLink, FileText, BookOpen, SearchX } from "lucide-react";
+import { ExternalLink, FileText, BookOpen, SearchX, Quote } from "lucide-react";
 import type { Citation } from "@/lib/types";
+import { sourceColor, sourceLabel } from "@/lib/sources";
 
 export function CitationsPanel({
   citations,
@@ -61,25 +62,53 @@ export function CitationsPanel({
               <p className="text-sm font-medium leading-snug">{chunk.title || "Untitled source"}</p>
             </div>
 
+            {/* Source provenance: which federated API(s) returned this paper. */}
+            <div className="mb-1.5 flex flex-wrap items-center gap-1 pl-7">
+              {chunk.source_type === "document" ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-700">
+                  <FileText size={10} aria-hidden /> Uploaded document
+                </span>
+              ) : (
+                (chunk.sources.length ? chunk.sources : [chunk.source]).map(
+                  (s) =>
+                    s && (
+                      <span
+                        key={s}
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${sourceColor(s)}`}
+                      >
+                        {sourceLabel(s)}
+                      </span>
+                    ),
+                )
+              )}
+              {chunk.citation_count > 0 && (
+                <span className="inline-flex items-center gap-0.5 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                  <Quote size={9} aria-hidden /> {chunk.citation_count.toLocaleString()} cites
+                </span>
+              )}
+            </div>
+
             <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 pl-7 text-xs text-[var(--color-muted-foreground)]">
               {isPaper ? (
                 <>
                   {chunk.journal && <span>{chunk.journal}</span>}
-                  {chunk.year && <span>· {chunk.year}</span>}
-                  <a
-                    href={`https://pubmed.ncbi.nlm.nih.gov/${chunk.pmid}/`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-[var(--color-primary)] hover:underline"
-                  >
-                    PMID {chunk.pmid} <ExternalLink size={11} aria-hidden />
-                  </a>
+                  {chunk.year ? <span>· {chunk.year}</span> : null}
+                  {(chunk.url || chunk.pmid) && (
+                    <a
+                      href={
+                        chunk.url ??
+                        `https://pubmed.ncbi.nlm.nih.gov/${chunk.pmid}/`
+                      }
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-[var(--color-primary)] hover:underline"
+                    >
+                      {chunk.pmid ? `PMID ${chunk.pmid}` : "View source"}{" "}
+                      <ExternalLink size={11} aria-hidden />
+                    </a>
+                  )}
                 </>
-              ) : (
-                <span className="inline-flex items-center gap-1">
-                  <FileText size={12} aria-hidden /> Uploaded document
-                </span>
-              )}
+              ) : null}
             </div>
 
             <p className="pl-7 text-xs leading-relaxed text-[var(--color-muted-foreground)] line-clamp-4">

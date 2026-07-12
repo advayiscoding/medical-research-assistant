@@ -1,23 +1,19 @@
-"""Paper search endpoint.
+"""Federated paper search endpoint.
 
-Thin by design: parse input, call PubMed, persist, shape response. The
-"business logic" (idempotent persistence) lives in services/papers.py; the
-"how to talk to PubMed" lives in services/pubmed.py. This route just
-orchestrates them.
-
-Auth is added in Phase 7b — for now search is open so the pipeline is testable
-end-to-end before the auth layer exists.
+Thin by design: parse input, run the federated search (10 sources in parallel,
+deduplicated and ranked), persist + index, shape the response. The federation,
+persistence, and ingestion live in services; this route just orchestrates and
+records search history.
 """
 
 import logging
 
 from fastapi import APIRouter
 
-from app.api.deps import CurrentUserDep, DbDep, PubMedDep, VectorStoreDep
+from app.api.deps import CurrentUserDep, DbDep, SourceProvidersDep, VectorStoreDep
 from app.models import SearchHistory
 from app.schemas.paper import PaperRead, SearchRequest, SearchResponse
-from app.services.ingestion import ingest_paper
-from app.services.papers import upsert_papers
+from app.services.library import fetch_store_ingest
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/search", tags=["search"])
@@ -27,36 +23,39 @@ router = APIRouter(prefix="/search", tags=["search"])
 async def search_papers(
     payload: SearchRequest,
     user: CurrentUserDep,
-    pubmed: PubMedDep,
+    providers: SourceProvidersDep,
     db: DbDep,
     store: VectorStoreDep,
 ) -> SearchResponse:
-    papers = await pubmed.search_and_fetch(payload.query, payload.max_results)
-    persisted = await upsert_papers(db, papers)
+    # Federate across all sources, dedup/rank, persist, and index so results are
+    # immediately answerable in Chat. Idempotent by dedup_key, so re-searching a
+    # known topic re-indexes nothing.
+    papers = await fetch_store_ingest(
+        db, store, providers, payload.query, final_limit=payload.max_results
+    )
 
-    # Ingest each paper so it is immediately semantically searchable. This is
-    # idempotent (see ingestion.py), so re-searching a known topic re-indexes
-    # nothing. For a portfolio-scale corpus doing this inline is fine; at larger
-    # scale this would move to a background task/queue so search stays snappy.
-    for paper in persisted:
-        await ingest_paper(db, paper, store)
-
-    db.add(SearchHistory(user_id=user.id, query=payload.query, result_count=len(persisted)))
+    db.add(SearchHistory(user_id=user.id, query=payload.query, result_count=len(papers)))
     await db.commit()
 
     return SearchResponse(
         query=payload.query,
-        count=len(persisted),
+        count=len(papers),
         papers=[
             PaperRead(
                 id=str(p.id),
                 pmid=p.pmid,
+                doi=p.doi,
                 title=p.title,
                 authors=p.authors,
                 abstract=p.abstract,
                 journal=p.journal,
                 publication_date=p.publication_date,
+                source=p.source,
+                sources=p.sources or [p.source],
+                citation_count=p.citation_count,
+                url=p.url,
+                is_preprint=p.is_preprint,
             )
-            for p in persisted
+            for p in papers
         ],
     )

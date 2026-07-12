@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Search as SearchIcon, ExternalLink, Users } from "lucide-react";
+import { Search as SearchIcon, ExternalLink, Users, Quote } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { PageHeader } from "@/components/PageHeader";
 import { Button, Input, Card, Spinner } from "@/components/ui";
+import { sourceColor, sourceLabel } from "@/lib/sources";
 import type { Paper } from "@/lib/types";
 
 export default function SearchPage() {
@@ -34,7 +35,7 @@ export default function SearchPage() {
     <div className="flex h-dvh flex-col">
       <PageHeader
         title="Search literature"
-        subtitle="Query PubMed. Matching papers are indexed and become answerable in Chat."
+        subtitle="Federated across 10 sources (PubMed, OpenAlex, Europe PMC, Crossref, arXiv, bioRxiv, medRxiv, ClinicalTrials.gov, PMC, openFDA). Results are deduplicated, ranked, and indexed for Chat."
       />
       <div className="flex-1 overflow-y-auto px-8 py-6">
         <form onSubmit={onSearch} className="mb-6 flex gap-2">
@@ -73,16 +74,41 @@ export default function SearchPage() {
         <div className="space-y-3">
           {papers.map((p) => (
             <Card key={p.id} className="p-5">
+              <div className="mb-2 flex flex-wrap items-center gap-1">
+                {(p.sources.length ? p.sources : [p.source]).map(
+                  (s) =>
+                    s && (
+                      <span
+                        key={s}
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${sourceColor(s)}`}
+                      >
+                        {sourceLabel(s)}
+                      </span>
+                    ),
+                )}
+                {p.is_preprint && (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+                    Preprint
+                  </span>
+                )}
+                {p.citation_count > 0 && (
+                  <span className="inline-flex items-center gap-0.5 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">
+                    <Quote size={9} aria-hidden /> {p.citation_count.toLocaleString()} cites
+                  </span>
+                )}
+              </div>
               <div className="flex items-start justify-between gap-4">
                 <h3 className="font-sans font-semibold leading-snug">{p.title}</h3>
-                <a
-                  href={`https://pubmed.ncbi.nlm.nih.gov/${p.pmid}/`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex shrink-0 items-center gap-1 text-xs text-[var(--color-primary)] hover:underline"
-                >
-                  PubMed <ExternalLink size={11} aria-hidden />
-                </a>
+                {(p.url || p.pmid) && (
+                  <a
+                    href={p.url ?? `https://pubmed.ncbi.nlm.nih.gov/${p.pmid}/`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex shrink-0 items-center gap-1 text-xs text-[var(--color-primary)] hover:underline"
+                  >
+                    View <ExternalLink size={11} aria-hidden />
+                  </a>
+                )}
               </div>
               <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--color-muted-foreground)]">
                 {p.journal && <span>{p.journal}</span>}

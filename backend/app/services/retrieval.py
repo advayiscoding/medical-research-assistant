@@ -67,6 +67,7 @@ async def retrieve(
             continue  # diversity cap
         per_source[source_key] = per_source.get(source_key, 0) + 1
 
+        sources_raw = meta.get("sources", "")
         kept.append(
             RetrievedChunk(
                 chunk_id=None,
@@ -75,9 +76,14 @@ async def retrieve(
                 score=round(hit.score, 4),
                 source_type=meta.get("source_type", "paper"),
                 pmid=meta.get("pmid") or None,
+                doi=meta.get("doi") or None,
                 title=meta.get("title", ""),
                 journal=meta.get("journal", ""),
                 year=meta.get("year") or None,
+                source=meta.get("source", ""),
+                sources=[s for s in sources_raw.split(",") if s] if sources_raw else [],
+                url=meta.get("url") or None,
+                citation_count=int(meta.get("citation_count") or 0),
             )
         )
         if len(kept) >= top_k:

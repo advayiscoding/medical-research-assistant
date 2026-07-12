@@ -48,9 +48,12 @@ def test_route_factcheck_loops_on_fail_then_stops_at_max() -> None:
 
 # --- whole-graph integration with fakes ------------------------------------
 
-class FakePubMed:
-    # Returns no papers → search ingests nothing; the corpus is pre-seeded below.
-    async def search_and_fetch(self, query: str, max_results: int = 5):
+class FakeProvider:
+    # Returns no records → the search agent ingests nothing; the corpus is
+    # pre-seeded below so the rest of the graph has evidence to work with.
+    name = "pubmed"
+
+    async def search(self, query: str, limit: int):
         return []
 
 
@@ -80,6 +83,7 @@ class ScriptedLLM:
 @pytest.fixture
 def session_factory():
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
     from app.core.config import get_settings
     engine = create_async_engine(get_settings().database_url)
     return async_sessionmaker(engine, expire_on_commit=False)
@@ -102,7 +106,7 @@ async def test_full_graph_loops_back_then_reports(seeded_store, session_factory)
                        "journal": "NEJM", "year": 2023, "chunk_index": 0}])
 
     llm = ScriptedLLM()
-    agents = ResearchAgents(FakePubMed(), seeded_store, llm, session_factory)
+    agents = ResearchAgents([FakeProvider()], seeded_store, llm, session_factory)
     graph = build_graph(agents)
 
     final = await graph.ainvoke({
@@ -123,7 +127,7 @@ async def test_full_graph_loops_back_then_reports(seeded_store, session_factory)
 async def test_full_graph_insufficient_evidence(seeded_store, session_factory) -> None:
     # Empty store → retrieval returns nothing → short-circuit, LLM never drafts.
     llm = ScriptedLLM()
-    agents = ResearchAgents(FakePubMed(), seeded_store, llm, session_factory)
+    agents = ResearchAgents([FakeProvider()], seeded_store, llm, session_factory)
     graph = build_graph(agents)
 
     final = await graph.ainvoke({

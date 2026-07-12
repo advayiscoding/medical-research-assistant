@@ -9,12 +9,18 @@ export interface User {
 
 export interface Paper {
   id: string;
-  pmid: string;
+  pmid: string | null;
+  doi: string | null;
   title: string;
   authors: string[];
   abstract: string | null;
   journal: string | null;
   publication_date: string | null;
+  source: string;
+  sources: string[];
+  citation_count: number;
+  url: string | null;
+  is_preprint: boolean;
 }
 
 export interface SearchResponse {
@@ -30,9 +36,14 @@ export interface RetrievedChunk {
   score: number;
   source_type: string;
   pmid: string | null;
+  doi: string | null;
   title: string;
   journal: string;
   year: number | null;
+  source: string;
+  sources: string[];
+  url: string | null;
+  citation_count: number;
 }
 
 export interface Citation {

@@ -17,13 +17,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.agents import prompts
 from app.agents.state import ResearchState
-from app.services.ingestion import ingest_paper
+from app.services.library import fetch_store_ingest
 from app.services.llm import LLMClient
-from app.services.papers import upsert_papers
 from app.services.prompts import build_user_message
-from app.services.pubmed import PubMedClient
 from app.services.rag import _resolve_citations
 from app.services.retrieval import retrieve
+from app.services.sources.base import SourceProvider
 from app.services.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
@@ -32,31 +31,33 @@ logger = logging.getLogger(__name__)
 class ResearchAgents:
     def __init__(
         self,
-        pubmed: PubMedClient,
+        providers: list[SourceProvider],
         store: VectorStore,
         llm: LLMClient,
         session_factory: async_sessionmaker,
     ) -> None:
-        self._pubmed = pubmed
+        self._providers = providers
         self._store = store
         self._llm = llm
         self._session_factory = session_factory
 
     # --- 1. Search agent -------------------------------------------------
     async def search(self, state: ResearchState) -> ResearchState:
-        """Decide what to search PubMed for, fetch it, and ingest it so it's
-        retrievable. This is the agent's ability to *gather fresh evidence*
-        rather than only reusing whatever happens to already be indexed."""
+        """Decide what to search for, fetch it from all ten sources (deduped and
+        ranked), and ingest it so it's retrievable. This is the agent's ability
+        to *gather fresh evidence* rather than only reusing whatever happens to
+        already be indexed."""
         queries = await self._plan_queries(state["question"])
         total = 0
         async with self._session_factory() as db:
             for q in queries:
-                papers = await self._pubmed.search_and_fetch(q, state.get("max_papers", 5))
-                persisted = await upsert_papers(db, papers)
-                for paper in persisted:
-                    total += await ingest_paper(db, paper, self._store)
+                papers = await fetch_store_ingest(
+                    db, self._store, self._providers, q,
+                    final_limit=state.get("max_papers", 5),
+                )
+                total += len(papers)
             await db.commit()
-        logger.info("search agent: %d queries, %d chunks ingested", len(queries), total)
+        logger.info("search agent: %d queries, %d papers ingested", len(queries), total)
         return {"search_queries": queries, "papers_ingested": total}
 
     async def _plan_queries(self, question: str) -> list[str]:

@@ -1,7 +1,16 @@
 import uuid
 from datetime import date
 
-from sqlalchemy import CheckConstraint, Date, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Date,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -9,13 +18,27 @@ from app.db.base import Base, TimestampMixin, UUIDMixin
 
 
 class Paper(Base, UUIDMixin, TimestampMixin):
-    """PubMed paper metadata. `pmid` is unique so re-running a search upserts
-    instead of duplicating — ingestion must be idempotent because users will
-    search overlapping topics."""
+    """A scholarly record from ANY federated source (PubMed, OpenAlex, Crossref,
+    arXiv, ClinicalTrials.gov, Europe PMC, PMC, bioRxiv, medRxiv, openFDA).
+
+    Deduplication identity is `dedup_key`, not PMID — most sources have no PMID
+    (a DOI, an arXiv id, an NCT number, an FDA label id). `dedup_key` is a single
+    canonical string (doi:… > pmid:… > source:external_id > title:hash) so the
+    same paper found by five APIs collapses to one row. `sources` records every
+    provider that returned it, so provenance survives the merge."""
 
     __tablename__ = "papers"
 
-    pmid: Mapped[str] = mapped_column(String(20), unique=True, index=True)
+    # Canonical cross-source identity; upsert target. See sources/dedup.py.
+    dedup_key: Mapped[str] = mapped_column(String(300), unique=True, index=True)
+    # Primary source (first/most authoritative) + every source that returned it.
+    source: Mapped[str] = mapped_column(String(40), default="pubmed")
+    sources: Mapped[list[str]] = mapped_column(JSONB, default=list)
+
+    pmid: Mapped[str | None] = mapped_column(String(20), index=True)
+    doi: Mapped[str | None] = mapped_column(String(255), index=True)
+    external_id: Mapped[str | None] = mapped_column(String(255))
+
     title: Mapped[str] = mapped_column(Text)
     # Author lists are ragged (1..500+ names) and only ever read whole —
     # JSONB list of names beats a normalized authors table we'd never query.
@@ -23,6 +46,10 @@ class Paper(Base, UUIDMixin, TimestampMixin):
     abstract: Mapped[str | None] = mapped_column(Text)
     journal: Mapped[str | None] = mapped_column(String(500))
     publication_date: Mapped[date | None] = mapped_column(Date)
+
+    citation_count: Mapped[int] = mapped_column(Integer, default=0)
+    url: Mapped[str | None] = mapped_column(String(1000))
+    is_preprint: Mapped[bool] = mapped_column(Boolean, default=False)
 
     chunks: Mapped[list["PaperChunk"]] = relationship(
         back_populates="paper", cascade="all, delete-orphan"

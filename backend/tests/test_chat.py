@@ -16,10 +16,11 @@ from reportlab.pdfgen import canvas
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.api.deps import get_llm, get_pubmed_client, get_store
+from app.api.deps import get_llm, get_source_providers, get_store
 from app.core.config import Settings, get_settings
 from app.main import create_app
 from app.models import User
+from app.services.sources.base import SourceRecord
 from app.services.vector_store import VectorStore
 
 
@@ -31,12 +32,15 @@ class FakeLLM:
         return "Metformin lowers blood glucose by reducing hepatic gluconeogenesis [1]."
 
 
-class FakePubMed:
-    """No-op PubMed: the chat auto-search top-up finds nothing, so tests stay
-    offline and deterministic. Tests that want a corpus ingest one directly."""
+class FakeProvider:
+    """A fake federated source; returns canned records (or none)."""
 
-    async def search_and_fetch(self, query: str, max_results: int = 10):
-        return []
+    def __init__(self, name: str, records: list[SourceRecord] | None = None) -> None:
+        self.name = name
+        self._records = records or []
+
+    async def search(self, query: str, limit: int) -> list[SourceRecord]:
+        return self._records[:limit]
 
 
 @pytest.fixture(autouse=True)
@@ -59,7 +63,8 @@ def client(tmp_path, emails):
     app = create_app(Settings(environment="test"))
     app.dependency_overrides[get_llm] = lambda: FakeLLM()
     app.dependency_overrides[get_store] = lambda: store
-    app.dependency_overrides[get_pubmed_client] = lambda: FakePubMed()
+    # Default: providers find nothing, so auto-fetch stays offline/deterministic.
+    app.dependency_overrides[get_source_providers] = lambda: [FakeProvider("pubmed")]
     yield TestClient(app)
     app.dependency_overrides.clear()
 
@@ -148,23 +153,21 @@ def test_ask_without_evidence_reports_insufficient(client: TestClient, emails) -
 
 
 def test_chat_auto_fetches_papers_when_corpus_thin(tmp_path, emails) -> None:
-    """When the local corpus doesn't cover the question, chat pulls papers from
-    PubMed first, so the user gets a grounded answer without searching manually."""
-    from app.schemas.paper import PubMedPaper
-
-    class FetchingPubMed:
-        async def search_and_fetch(self, query: str, max_results: int = 10):
-            return [PubMedPaper(pmid=f"D{uuid.uuid4().int % 10_000_000}",
-                                title="Metformin in type 2 diabetes",
-                                authors=["Doe A"], journal="Diabetes Care",
-                                abstract="Metformin lowers blood glucose by reducing "
-                                         "hepatic gluconeogenesis and is first-line therapy.")]
+    """When the local corpus doesn't cover the question, chat federates across
+    sources first, so the user gets a grounded answer without searching manually."""
+    fetching = FakeProvider("openalex", [
+        SourceRecord(source="openalex", pmid=f"D{uuid.uuid4().int % 10_000_000}",
+                     title="Metformin in type 2 diabetes", authors=["Doe A"],
+                     journal="Diabetes Care", citation_count=42,
+                     abstract="Metformin lowers blood glucose by reducing hepatic "
+                              "gluconeogenesis and is first-line therapy.")
+    ])
 
     store = VectorStore(Settings(environment="test", chroma_persist_dir=str(tmp_path / "c2")))
     app = create_app(Settings(environment="test"))
     app.dependency_overrides[get_llm] = lambda: FakeLLM()
     app.dependency_overrides[get_store] = lambda: store
-    app.dependency_overrides[get_pubmed_client] = lambda: FetchingPubMed()
+    app.dependency_overrides[get_source_providers] = lambda: [fetching]
     c = TestClient(app)
 
     h = _auth(c, emails[0])

@@ -39,6 +39,9 @@ async def db():
 
 async def test_paper_chunk_round_trip(db: AsyncSession) -> None:
     paper = Paper(
+        dedup_key=f"pmid:{uuid.uuid4().int % 10_000_000}",
+        source="pubmed",
+        sources=["pubmed"],
         pmid="12345678",
         title="A study of things",
         authors=["Smith J", "Doe A"],
@@ -64,12 +67,25 @@ async def test_chunk_requires_exactly_one_source(db: AsyncSession) -> None:
         await db.flush()
 
 
-async def test_duplicate_pmid_rejected(db: AsyncSession) -> None:
-    db.add(Paper(pmid="99999999", title="one", authors=[]))
+async def test_duplicate_dedup_key_rejected(db: AsyncSession) -> None:
+    # dedup_key (not pmid) is the cross-source identity now. PMID may repeat
+    # across dedup_keys; dedup_key must be unique.
+    key = f"doi:10.1/{uuid.uuid4()}"
+    db.add(Paper(dedup_key=key, source="openalex", pmid="99999999", title="one", authors=[]))
     await db.flush()
-    db.add(Paper(pmid="99999999", title="two", authors=[]))
+    db.add(Paper(dedup_key=key, source="pubmed", pmid="99999999", title="two", authors=[]))
     with pytest.raises(IntegrityError):
         await db.flush()
+
+
+async def test_same_pmid_allowed_under_different_dedup_keys(db: AsyncSession) -> None:
+    # The same paper found DOI-keyed and PMID-keyed carries one PMID twice —
+    # this MUST be allowed (pmid is no longer unique).
+    db.add(Paper(dedup_key=f"doi:10.2/{uuid.uuid4()}", source="openalex",
+                 pmid="77777777", title="doi-keyed", authors=[]))
+    db.add(Paper(dedup_key="pmid:77777777", source="pubmed",
+                 pmid="77777777", title="pmid-keyed", authors=[]))
+    await db.flush()  # no IntegrityError
 
 
 async def test_duplicate_email_rejected(db: AsyncSession) -> None:

@@ -23,17 +23,24 @@ class PubMedPaper(BaseModel):
 
 
 class PaperRead(BaseModel):
-    """A persisted paper as returned to the client."""
+    """A persisted paper as returned to the client, including which federated
+    source(s) it came from and its citation count."""
 
     model_config = ConfigDict(from_attributes=True)
 
     id: str
-    pmid: str
+    pmid: str | None
+    doi: str | None = None
     title: str
     authors: list[str]
     abstract: str | None
     journal: str | None
     publication_date: date | None
+    source: str = ""
+    sources: list[str] = []
+    citation_count: int = 0
+    url: str | None = None
+    is_preprint: bool = False
 
 
 class SearchRequest(BaseModel):

@@ -47,9 +47,17 @@ async def ingest_paper(db: AsyncSession, paper: Paper, store: VectorStore) -> in
     metadata_base = {
         "source_type": "paper",
         "paper_id": str(paper.id),
-        "pmid": paper.pmid,
+        "pmid": paper.pmid or "",
+        "doi": paper.doi or "",
+        # Provenance for citations: the primary source and every source that
+        # returned this paper (Chroma metadata values must be scalars, so the
+        # source list is joined; the RAG layer splits it back).
+        "source": paper.source,
+        "sources": ",".join(paper.sources or [paper.source]),
         "title": paper.title,
         "journal": paper.journal or "",
+        "url": paper.url or "",
+        "citation_count": paper.citation_count or 0,
         "year": paper.publication_date.year if paper.publication_date else 0,
     }
     return await _ingest(

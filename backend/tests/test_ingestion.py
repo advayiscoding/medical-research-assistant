@@ -8,7 +8,7 @@ pipeline actually indexes and that ingestion is idempotent.
 import uuid
 
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.core.config import Settings, get_settings
@@ -49,7 +49,9 @@ async def test_ingest_paper_creates_chunks_and_vectors(db: AsyncSession, store: 
     abstract = " ".join(
         f"Finding {i}: the treatment reduced amyloid burden in cohort {i}." for i in range(40)
     )
-    paper = Paper(pmid=f"T{uuid.uuid4().int % 10_000_000}", title="Amyloid study",
+    pmid = f"T{uuid.uuid4().int % 10_000_000}"
+    paper = Paper(dedup_key=f"pmid:{pmid}", source="pubmed", sources=["pubmed"],
+                  pmid=pmid, title="Amyloid study",
                   authors=["Doe A"], abstract=abstract, journal="Nature Medicine")
     db.add(paper)
     await db.flush()
@@ -65,7 +67,9 @@ async def test_ingest_paper_creates_chunks_and_vectors(db: AsyncSession, store: 
 
 
 async def test_ingest_is_idempotent(db: AsyncSession, store: VectorStore) -> None:
-    paper = Paper(pmid=f"T{uuid.uuid4().int % 10_000_000}", title="Repeat study",
+    pmid = f"T{uuid.uuid4().int % 10_000_000}"
+    paper = Paper(dedup_key=f"pmid:{pmid}", source="pubmed", sources=["pubmed"],
+                  pmid=pmid, title="Repeat study",
                   authors=[], abstract="A concise abstract about one finding.",
                   journal="Lancet")
     db.add(paper)
@@ -83,7 +87,9 @@ async def test_ingest_is_idempotent(db: AsyncSession, store: VectorStore) -> Non
 async def test_retrieval_finds_relevant_chunk(db: AsyncSession, store: VectorStore) -> None:
     from app.services import embeddings
 
-    paper = Paper(pmid=f"T{uuid.uuid4().int % 10_000_000}", title="Diabetes and metformin",
+    pmid = f"T{uuid.uuid4().int % 10_000_000}"
+    paper = Paper(dedup_key=f"pmid:{pmid}", source="pubmed", sources=["pubmed"],
+                  pmid=pmid, title="Diabetes and metformin",
                   authors=[], journal="Diabetes Care",
                   abstract="Metformin lowers blood glucose by reducing hepatic gluconeogenesis. "
                            "Separately, aspirin is used for cardiovascular prophylaxis.")

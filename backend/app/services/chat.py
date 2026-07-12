@@ -14,12 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models import ChatMessage, ChatSession, Citation, PaperChunk, User
-from app.services.ingestion import ingest_paper
+from app.services.library import fetch_store_ingest
 from app.services.llm import LLMClient
-from app.services.papers import upsert_papers
-from app.services.pubmed import PubMedClient
 from app.services.rag import answer_question
 from app.services.retrieval import retrieve
+from app.services.sources.base import SourceProvider
 from app.services.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
@@ -29,7 +28,7 @@ logger = logging.getLogger(__name__)
 HISTORY_TURNS = 6
 
 # If the best locally-indexed chunk scores below this, the corpus doesn't really
-# cover the question — so we fetch fresh papers from PubMed before answering.
+# cover the question — so we fetch fresh papers from all sources before answering.
 # Tuned above the retrieval floor (0.25): an off-topic-but-medical chunk can
 # clear the floor yet still be irrelevant (a diabetes question matching a
 # schizophrenia chunk at ~0.3), which is exactly the case this guards against.
@@ -103,16 +102,17 @@ async def post_message(
     store: VectorStore,
     llm: LLMClient,
     top_k: int = 5,
-    pubmed: PubMedClient | None = None,
+    providers: list[SourceProvider] | None = None,
 ) -> tuple[ChatMessage, ChatMessage, bool]:
     """Persist the user's question, run grounded RAG with recent history, persist
     the assistant's answer and its citations. Returns (user_msg, assistant_msg,
     insufficient_evidence).
 
-    If a PubMed client is supplied and the local corpus doesn't cover the
-    question, we fetch and index relevant papers first — so a user can ask about
-    a topic they never explicitly searched and still get a grounded answer,
-    instead of a confusing 'the sources are about something else' reply."""
+    If source providers are supplied and the local corpus doesn't cover the
+    question, we fetch and index relevant papers from all sources first — so a
+    user can ask about a topic they never explicitly searched and still get a
+    grounded answer, instead of a confusing 'the sources are about something
+    else' reply."""
     session = await get_session(db, user, session_id)
 
     history = _recent_history(session)
@@ -124,8 +124,8 @@ async def post_message(
     if not session.messages:
         session.title = question[:80]
 
-    if pubmed is not None:
-        await _ensure_corpus_covers(db, question, store, pubmed, top_k)
+    if providers is not None:
+        await _ensure_corpus_covers(db, question, store, providers)
 
     result = await answer_question(question, store, llm, top_k=top_k, history=history)
 
@@ -144,25 +144,22 @@ async def _ensure_corpus_covers(
     db: AsyncSession,
     question: str,
     store: VectorStore,
-    pubmed: PubMedClient,
-    top_k: int,
+    providers: list[SourceProvider],
 ) -> None:
-    """If the indexed corpus doesn't already cover the question, fetch and ingest
-    relevant PubMed papers so the subsequent RAG pass has real evidence.
+    """If the indexed corpus doesn't already cover the question, run a federated
+    search across all sources and ingest the results so the subsequent RAG pass
+    has real evidence.
 
     Cheap coverage probe: one local vector search. If the top hit is confidently
-    relevant, we skip the network call entirely — follow-ups about an
+    relevant, we skip the network fan-out entirely — follow-ups about an
     already-indexed topic stay fast."""
     hits = await retrieve(question, store, top_k=1)
     if hits and hits[0].score >= CORPUS_COVERAGE_THRESHOLD:
         return  # already covered; no fetch needed
 
-    logger.info("corpus thin for %r (best=%.3f); fetching from PubMed",
+    logger.info("corpus thin for %r (best=%.3f); federating across sources",
                 question, hits[0].score if hits else 0.0)
-    papers = await pubmed.search_and_fetch(question, max_results=AUTO_FETCH_PAPERS)
-    persisted = await upsert_papers(db, papers)
-    for paper in persisted:
-        await ingest_paper(db, paper, store)
+    await fetch_store_ingest(db, store, providers, question, final_limit=AUTO_FETCH_PAPERS)
 
 
 def _recent_history(session: ChatSession) -> list[tuple[str, str]]:

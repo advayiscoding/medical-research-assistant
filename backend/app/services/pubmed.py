@@ -106,19 +106,22 @@ class PubMedClient:
         if self._owns_client:
             await self._client.aclose()
 
-    def _common_params(self) -> dict[str, str]:
-        params = {"db": "pubmed", "tool": "medresearch-ai"}
+    def _common_params(self, db: str = "pubmed") -> dict[str, str]:
+        params = {"db": db, "tool": "medresearch-ai"}
         if self._settings.pubmed_api_key:
             params["api_key"] = self._settings.pubmed_api_key
         if self._settings.pubmed_email:
             params["email"] = self._settings.pubmed_email
         return params
 
-    async def esearch(self, query: str, max_results: int = 10) -> list[str]:
-        """Return PMIDs matching an NCBI query, most relevant first."""
+    async def esearch(self, query: str, max_results: int = 10, db: str = "pubmed") -> list[str]:
+        """Return record UIDs matching an NCBI query, most relevant first. `db`
+        selects the Entrez database — "pubmed" for abstracts, "pmc" for the full-
+        text archive. Both share this client's rate limiter, so the two NCBI
+        sources never exceed the shared per-IP limit."""
         await self._limiter.acquire()
         params = {
-            **self._common_params(),
+            **self._common_params(db),
             "term": query,
             "retmax": str(max_results),
             "retmode": "json",
@@ -127,9 +130,20 @@ class PubMedClient:
         resp = await self._client.get(f"{EUTILS_BASE}/esearch.fcgi", params=params)
         resp.raise_for_status()
         data = resp.json()
-        pmids: list[str] = data.get("esearchresult", {}).get("idlist", [])
-        logger.info("esearch %r -> %d pmids", query, len(pmids))
-        return pmids
+        uids: list[str] = data.get("esearchresult", {}).get("idlist", [])
+        logger.info("esearch[%s] %r -> %d ids", db, query, len(uids))
+        return uids
+
+    async def efetch_pmc_raw(self, pmcids: list[str]) -> str:
+        """Fetch raw JATS XML for PMC articles (full text). Parsing is left to the
+        PMC provider, which extracts title + abstract."""
+        if not pmcids:
+            return ""
+        await self._limiter.acquire()
+        params = {**self._common_params("pmc"), "id": ",".join(pmcids), "retmode": "xml"}
+        resp = await self._client.get(f"{EUTILS_BASE}/efetch.fcgi", params=params)
+        resp.raise_for_status()
+        return resp.text
 
     async def efetch(self, pmids: list[str]) -> list[PubMedPaper]:
         """Fetch metadata + abstracts for a batch of PMIDs in one call."""

@@ -9,7 +9,13 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.api.deps import CurrentUserDep, DbDep, LLMDep, PubMedDep, VectorStoreDep
+from app.api.deps import (
+    CurrentUserDep,
+    DbDep,
+    LLMDep,
+    SourceProvidersDep,
+    VectorStoreDep,
+)
 from app.models import ChatMessage, Paper, PaperChunk
 from app.schemas.chat import (
     MessageRead,
@@ -64,12 +70,12 @@ async def post_message(
     db: DbDep,
     store: VectorStoreDep,
     llm: LLMDep,
-    pubmed: PubMedDep,
+    providers: SourceProvidersDep,
 ) -> PostMessageResponse:
     try:
         user_msg, assistant_msg, insufficient = await chat_service.post_message(
             db, user, session_id, payload.question, store, llm,
-            top_k=payload.top_k, pubmed=pubmed,
+            top_k=payload.top_k, providers=providers,
         )
     except SessionNotFound as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Session not found") from exc
@@ -112,7 +118,12 @@ def _chunk_to_schema(chunk: PaperChunk, paper: Paper | None) -> RetrievedChunk:
         score=1.0,  # stored citation; original retrieval score not persisted
         source_type="paper" if paper else "document",
         pmid=paper.pmid if paper else None,
+        doi=paper.doi if paper else None,
         title=paper.title if paper else "",
         journal=(paper.journal or "") if paper else "",
         year=(paper.publication_date.year if paper and paper.publication_date else None),
+        source=paper.source if paper else "",
+        sources=(paper.sources or [paper.source]) if paper else [],
+        url=paper.url if paper else None,
+        citation_count=paper.citation_count if paper else 0,
     )

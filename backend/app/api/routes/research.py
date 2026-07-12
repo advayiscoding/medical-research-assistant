@@ -10,7 +10,7 @@ from fastapi import APIRouter
 
 from app.agents.graph import build_graph
 from app.agents.nodes import ResearchAgents
-from app.api.deps import CurrentUserDep, LLMDep, PubMedDep, VectorStoreDep
+from app.api.deps import CurrentUserDep, LLMDep, SourceProvidersDep, VectorStoreDep
 from app.db.session import get_session_factory
 from app.schemas.research import ResearchRequest, ResearchResponse
 
@@ -21,11 +21,11 @@ router = APIRouter(prefix="/research", tags=["research"])
 async def research(
     payload: ResearchRequest,
     user: CurrentUserDep,
-    pubmed: PubMedDep,
+    providers: SourceProvidersDep,
     store: VectorStoreDep,
     llm: LLMDep,
 ) -> ResearchResponse:
-    agents = ResearchAgents(pubmed, store, llm, get_session_factory())
+    agents = ResearchAgents(providers, store, llm, get_session_factory())
     graph = build_graph(agents)
 
     final = await graph.ainvoke(
